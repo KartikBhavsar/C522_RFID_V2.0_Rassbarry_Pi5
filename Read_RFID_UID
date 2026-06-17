@@ -1,0 +1,66 @@
+from kartik_c522 import kartik_c522
+import time
+
+rfid = kartik_c522()
+
+try:
+    rfid.begin()
+
+    print("Version = 0x%02X" % rfid.getVersion())
+
+    last_uid = ""
+
+    while True:
+
+        atqa = rfid.transceive([0x26])
+
+        if atqa:
+
+            # Anti-collision command
+            rfid.write_register(0x01, 0x00)
+            rfid.write_register(0x04, 0x7F)
+            rfid.write_register(0x0A, 0x80)
+
+            rfid.write_register(0x09, 0x93)
+            rfid.write_register(0x09, 0x20)
+
+            rfid.write_register(0x0D, 0x00)
+
+            rfid.write_register(0x01, 0x0C)
+            rfid.write_register(0x0D, 0x80)
+
+            time.sleep(0.05)
+
+            fifo = rfid.read_register(0x0A)
+
+            if fifo == 5:
+
+                data = []
+
+                for _ in range(fifo):
+                    data.append(rfid.read_register(0x09))
+
+                uid = " ".join("%02X" % b for b in data[:4])
+
+                if uid != last_uid:
+                    print(uid)
+                    last_uid = uid
+
+        else:
+            # No card present
+            last_uid = ""
+
+        time.sleep(0.2)
+
+except KeyboardInterrupt:
+    print("\nProgram stopped by user.")
+
+except Exception as e:
+    print("RFID Error:", e)
+
+finally:
+    try:
+        rfid.close()
+        print("SPI closed.")
+    except Exception:
+        pass
