@@ -1,0 +1,101 @@
+import spidev
+import time
+
+
+class kartik_c522:
+
+    def __init__(self, bus=0, device=0):
+        self.spi = spidev.SpiDev()
+        self.bus = bus
+        self.device = device
+        self._opened = False
+
+    def close(self):
+        """Safely close the SPI device."""
+        try:
+            if self._opened:
+                self.spi.close()
+                self._opened = False
+        except Exception:
+            pass
+
+    def write_register(self, reg, value):
+        self.spi.xfer2([
+            (reg << 1) & 0x7E,
+            value
+        ])
+
+    def read_register(self, reg):
+        r = self.spi.xfer2([
+            ((reg << 1) & 0x7E) | 0x80,
+            0
+        ])
+        return r[1]
+
+    def begin(self):
+        # Close SPI if it was already open
+        self.close()
+
+        # Open SPI
+        self.spi.open(self.bus, self.device)
+        self._opened = True
+        self.spi.max_speed_hz = 1000000
+
+        # Soft reset
+        self.write_register(0x01, 0x0F)
+        time.sleep(0.05)
+
+        # MFRC522 initialization
+        self.write_register(0x2A, 0x8D)
+        self.write_register(0x2B, 0x3E)
+        self.write_register(0x2D, 30)
+        self.write_register(0x2C, 0)
+
+        self.write_register(0x15, 0x40)
+        self.write_register(0x11, 0x3D)
+
+        # Turn antenna ON
+        tx = self.read_register(0x14)
+        if (tx & 0x03) != 0x03:
+            self.write_register(0x14, tx | 0x03)
+
+    def getVersion(self):
+        return self.read_register(0x37)
+
+    def getTX(self):
+        return self.read_register(0x14)
+
+    def transceive(self, data):
+        # Idle command
+        self.write_register(0x01, 0x00)
+
+        # Clear interrupts
+        self.write_register(0x04, 0x7F)
+
+        # Flush FIFO
+        self.write_register(0x0A, 0x80)
+
+        # Write data to FIFO
+        for b in data:
+            self.write_register(0x09, b)
+
+        # Start transmission
+        self.write_register(0x0D, 0x07)
+        self.write_register(0x01, 0x0C)
+        self.write_register(0x0D, 0x87)
+
+        # Wait for completion
+        for _ in range(2000):
+            irq = self.read_register(0x04)
+
+            if irq & 0x30:
+                fifo = self.read_register(0x0A)
+
+                response = []
+                for _ in range(fifo):
+                    response.append(self.read_register(0x09))
+
+                return response
+
+        # Timeout
+        return []
